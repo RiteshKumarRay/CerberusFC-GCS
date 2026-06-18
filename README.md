@@ -2,6 +2,8 @@
 
 CerberusFC-GCS is a custom Ground Control Station telemetry gateway and interactive dashboard designed for autonomous missions on UAVs (like a Raspberry Pi 3B paired with an INAV-powered Flight Controller). 
 
+![Cerberus GCS Dashboard Overview](gcs_photos/dashboard.png)
+
 The system leverages a high-performance Python daemon (`cerberus_master.py`) to bridge the Flight Controller (MSP protocol), an external LoRa telemetry link, and an interactive web dashboard built on Node-RED (using Dashboard 2.0 and Worldmap).
 
 ---
@@ -57,8 +59,22 @@ The python script acts as an intelligent daemon, polling telemetry from the flig
 
 The dashboard provides a custom cockpit UI utilizing the latest **FlowFuse Dashboard 2.0** framework.
 
+![Node-RED Backend Flow Diagram](gcs_photos/node_red_flow_diagram.png)
+
 ### Features:
 *   **Interactive Waypoint Planner**: Uses `node-red-contrib-web-worldmap` to draw flight paths, view current drone positions, place markers, and compile waypoints to push to the Python daemon.
+
+    #### Waypoint Planning & Mission Maps
+    
+    ![Waypoint Map Overview](gcs_photos/waypoints_map1.png)
+    *Waypoint Map Overview*
+    
+    ![Active Mission Waypoints](gcs_photos/waypoints_map2.png)
+    *Active Mission Waypoints & Flight Path Tracking*
+    
+    ![Mission Upload Configuration](gcs_photos/dashboard_mission_planning.png)
+    *Dashboard Waypoint Mission Actions Panel*
+
 *   **Live Telemetry HUD**: Monitors battery status, attitude angles, altitude, GPS status, and current active system flight states.
 *   **Secure Access control**: Password-protected using the `Cerberus GCS` account configuration.
 
