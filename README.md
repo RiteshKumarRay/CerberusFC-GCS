@@ -1,6 +1,6 @@
 # Cerberus (Flight Controller's Ground Control Station)
 
-CerberusFC-GCS is a custom Ground Control Station telemetry gateway and interactive dashboard designed for autonomous missions on UAVs (like a Raspberry Pi 3B paired with an INAV-powered Flight Controller). 
+CerberusFC-GCS is a custom Ground Control Station telemetry gateway and interactive dashboard designed for autonomous missions on UAVs (like a Raspberry Pi 3B paired with an INAV-powered Custom Flight Controller using STM32 F411 BlackPill Board). 
 
 ![Cerberus GCS Dashboard Overview](gcs_photos/dashboard.png)
 
