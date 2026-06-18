@@ -10,11 +10,11 @@ The system leverages a high-performance Python daemon (`cerberus_master.py`) to 
 
 ```mermaid
 graph TD
-    subgraph Ground Control Station (GCS Laptop/Pi)
+    subgraph "Ground Control Station (GCS Laptop/Pi)"
         Dashboard[Node-RED Dashboard 2.0 & Worldmap] <-->|UDP 5005 / 5006| Daemon[Cerberus Master Daemon]
     end
 
-    subgraph UAV (Flight Controller & Hardware)
+    subgraph "UAV (Flight Controller & Hardware)"
         Daemon <-->|USB /dev/ttyACM0 @ 115200| FC[Flight Controller - MSP]
         Daemon -->|UART /dev/serial0 @ 115200| LoRa[LoRa Telemetry Module]
     end
