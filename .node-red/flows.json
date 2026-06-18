@@ -1,0 +1,320 @@
+[
+    {
+        "id": "cerb_tab",
+        "type": "tab",
+        "label": "Cerberus GCS",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "cerb_base",
+        "type": "ui-base",
+        "name": "Cerberus FC",
+        "path": "/dashboard",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false
+    },
+    {
+        "id": "cerb_theme",
+        "type": "ui-theme",
+        "name": "Cerberus Dark",
+        "colors": {
+            "surface": "#0d1830",
+            "primary": "#00f5ff",
+            "bgPage": "#08111f",
+            "groupBg": "#0f1f40",
+            "groupOutline": "#1a2d5a"
+        },
+        "sizes": {
+            "pagePadding": "0px",
+            "groupGap": "0px",
+            "groupBorderRadius": "0px",
+            "widgetGap": "0px"
+        }
+    },
+    {
+        "id": "cerb_page",
+        "type": "ui-page",
+        "name": "Mission Planner",
+        "ui": "cerb_base",
+        "path": "/cerberus",
+        "icon": "mdi-airplane",
+        "layout": "notebook",
+        "theme": "cerb_theme",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Large",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 1
+    },
+    {
+        "id": "cerb_grp",
+        "type": "ui-group",
+        "name": "Mission Control",
+        "page": "cerb_page",
+        "width": "12",
+        "height": "1",
+        "order": 1
+    },
+    {
+        "id": "e0907d6d62239e70",
+        "type": "websocket-listener",
+        "path": "/ws/cerberus",
+        "wholemsg": "false"
+    },
+    {
+        "id": "cerb_map",
+        "type": "worldmap",
+        "z": "cerb_tab",
+        "name": "Cerberus Map",
+        "lat": "30.676",
+        "lon": "76.666",
+        "zoom": "15",
+        "layer": "OSMC",
+        "cluster": "",
+        "maxage": "",
+        "usermenu": "show",
+        "layers": "show",
+        "panit": "false",
+        "panlock": "false",
+        "zoomlock": "false",
+        "hiderightclick": "false",
+        "coords": "deg",
+        "showgrid": "false",
+        "allowFileDrop": "false",
+        "path": "/worldmap",
+        "overlist": "DR,DN,TL",
+        "maplist": "OSMG,OSMC,EsriC,EsriS,EsriT,EsriDG,UKOS",
+        "mapname": "",
+        "mapurl": "",
+        "mapopt": "",
+        "mapwms": false,
+        "x": 280,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "cerb_mapin",
+        "type": "worldmap in",
+        "z": "cerb_tab",
+        "name": "Map Input",
+        "x": 120,
+        "y": 160,
+        "wires": [
+            [
+                "cerb_parser"
+            ]
+        ]
+    },
+    {
+        "id": "cerb_parser",
+        "type": "function",
+        "z": "cerb_tab",
+        "name": "Waypoint Parser",
+        "func": "// ==========================================\n// 1. MAP OPEN EVENT (Auto-Zoom & Add Button)\n// ==========================================\nif (msg.payload.action === \"connected\") {\n    let dLat = flow.get('droneLat') || 30.676; // Fallback to your rough area if no GPS yet\n    let dLon = flow.get('droneLon') || 76.666;\n    \n    let startupCommands = [\n        // Auto-center camera on the drone\n        { command: { center: [dLat, dLon], zoom: 18 } },\n        // Create the Clear Button on the map UI\n        { command: { button: { name: \"Clear Mission\", icon: \"fa-trash\" } } }\n    ];\n    return [null, { payload: startupCommands }];\n}\n\n// ==========================================\n// 2. CLEAR BUTTON EVENT\n// ==========================================\nif (msg.payload.action === \"button\" && msg.payload.name === \"Clear Mission\") {\n    flow.set('drawnWaypoints', []); // Wipe the saved coordinates memory\n    // Sending a clear command for the \"Mission\" layer wipes all pins and lines at once\n    return [null, { payload: { command: { clear: \"Mission\" } } }]; \n}\n\n// ==========================================\n// 3. WAYPOINT DRAWING EVENT\n// ==========================================\nif (msg.payload.action !== 'draw') return null;\n\nlet coords = [];\nif (msg.payload.type === 'Line' && msg.payload.line && msg.payload.line.length > 0) {\n    coords = msg.payload.line.map(p => ({ lat: p.lat, lon: p.lng || p.lon }));\n} else if (msg.payload.lat !== undefined) {\n    let existing = flow.get('drawnWaypoints') || [];\n    coords = [...existing, { lat: msg.payload.lat, lon: msg.payload.lon || msg.payload.lng }];\n} else { \n    return null; \n}\n\nif (coords.length === 0) return null;\nflow.set('drawnWaypoints', coords);\n\nlet mapCommands = [];\nlet linePoints = coords.map(c => [c.lat, c.lon]);\n\n// Draw the blue path\nmapCommands.push({\n    name: \"MissionPath\",\n    line: linePoints,\n    color: \"#0078FF\", \n    weight: 4,\n    layer: \"Mission\" // Assigned to the Mission layer so the Clear button can delete it\n});\n\n// Draw the pins with BIGGER tags\nfor (let i = 0; i < coords.length; i++) {\n    mapCommands.push({\n        name: \"WP_\" + (i + 1), \n        lat: coords[i].lat,\n        lon: coords[i].lon,\n        icon: \"fa-map-marker\",\n        iconColor: \"#D32F2F\", \n        // BIGGER TEXT using HTML styling\n        label: \"<div style='font-size: 16px; font-weight: 900; background: white; padding: 2px 6px; border-radius: 4px; border: 1px solid black;'>WP \" + (i + 1) + \"</div>\", \n        layer: \"Mission\" // Assigned to the Mission layer\n    });\n}\n\nlet msgUploader = { payload: { type: 'waypoints', data: coords } };\nlet msgMapVisuals = { payload: mapCommands };\n\n// Send data to the uploader (Output 1) and visuals back to the map (Output 2)\nreturn [msgUploader, msgMapVisuals];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 320,
+        "y": 160,
+        "wires": [
+            [
+                "cerb_planner"
+            ],
+            [
+                "cerb_map"
+            ]
+        ]
+    },
+    {
+        "id": "cerb_planner",
+        "type": "ui-template",
+        "z": "cerb_tab",
+        "group": "cerb_grp",
+        "page": "",
+        "ui": "",
+        "name": "Mission Planner",
+        "order": 1,
+        "width": "12",
+        "height": "0",
+        "format": "<template>\n<div class=\"gcs\">\n\n  <!-- TOP BAR -->\n  <div class=\"topbar\">\n    <div class=\"brand\">\n      <div class=\"brand-mark\">C</div>\n      <div class=\"brand-info\">\n        <div class=\"brand-name\">Cerberus FC</div>\n        <div class=\"brand-sub\">Ground Control · v2.1</div>\n      </div>\n    </div>\n\n    <div class=\"topbar-center\">\n      <div class=\"mode-badge\" :class=\"flightModeClass\">{{ flightMode }}</div>\n    </div>\n\n    <div class=\"topbar-right\">\n      <a href=\"/worldmap\" target=\"_blank\" class=\"map-link\">\n        <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><polygon points=\"3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21\"/><line x1=\"9\" y1=\"3\" x2=\"9\" y2=\"18\"/><line x1=\"15\" y1=\"6\" x2=\"15\" y2=\"21\"/></svg>\n        Map\n      </a>\n      <div class=\"arm-status\" :class=\"armed ? 'is-armed' : ''\">\n        <div class=\"arm-dot\"></div>\n        {{ armed ? 'ARMED' : 'SAFE' }}\n      </div>\n    </div>\n  </div>\n\n  <!-- MAIN GRID -->\n  <div class=\"main-grid\">\n\n    <!-- LEFT PANEL — Instruments -->\n    <div class=\"left-panel\">\n\n      <!-- Battery Card -->\n      <div class=\"card battery-card\">\n        <div class=\"card-label\">Battery</div>\n        <div class=\"batt-main\">\n          <div class=\"batt-voltage\">{{ battVoltage.toFixed(1) }}<span class=\"batt-unit\">V</span></div>\n          <div class=\"batt-pct-wrap\">\n            <div class=\"batt-bar-track\">\n              <div class=\"batt-bar-fill\" :style=\"{ width: battPct + '%', background: battBarColor }\"></div>\n            </div>\n            <div class=\"batt-pct-label\" :style=\"{ color: battBarColor }\">{{ battPct }}%</div>\n          </div>\n        </div>\n        <div class=\"batt-detail\">\n          <span>{{ battCurrent.toFixed(1) }}A</span>\n          <span>{{ battMah }}mAh used</span>\n          <span class=\"batt-cells\">{{ battCells }}S</span>\n        </div>\n      </div>\n\n      <!-- Compass Card -->\n      <div class=\"card compass-card\">\n        <div class=\"card-label\">Heading</div>\n        <div class=\"compass-wrap\">\n          <svg class=\"compass-svg\" viewBox=\"0 0 200 200\" xmlns=\"http://www.w3.org/2000/svg\">\n            <!-- Outer ring -->\n            <circle cx=\"100\" cy=\"100\" r=\"90\" fill=\"none\" stroke=\"#e5e3de\" stroke-width=\"1.5\"/>\n            <circle cx=\"100\" cy=\"100\" r=\"78\" fill=\"#faf9f6\" stroke=\"#ede9e0\" stroke-width=\"1\"/>\n\n            <!-- Tick marks -->\n            <g stroke=\"#c8c4bc\" stroke-width=\"1\">\n              <line v-for=\"t in 72\" :key=\"t\"\n                :x1=\"100 + 75 * Math.sin((t-1)*5 * Math.PI/180)\"\n                :y1=\"100 - 75 * Math.cos((t-1)*5 * Math.PI/180)\"\n                :x2=\"100 + ((t-1) % 9 === 0 ? 62 : (t-1) % 3 === 0 ? 66 : 70) * Math.sin((t-1)*5 * Math.PI/180)\"\n                :y2=\"100 - ((t-1) % 9 === 0 ? 62 : (t-1) % 3 === 0 ? 66 : 70) * Math.cos((t-1)*5 * Math.PI/180)\"\n              />\n            </g>\n\n            <!-- Cardinal labels, rotating with heading inverse -->\n            <g :transform=\"`rotate(${-yaw}, 100, 100)`\" font-family=\"'DM Mono', monospace\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" dominant-baseline=\"central\">\n              <text x=\"100\" y=\"22\" fill=\"#dc2626\">N</text>\n              <text x=\"178\" y=\"100\" fill=\"#374151\">E</text>\n              <text x=\"100\" y=\"178\" fill=\"#374151\">S</text>\n              <text x=\"22\" y=\"100\" fill=\"#374151\">W</text>\n            </g>\n\n            <!-- Heading needle -->\n            <g :transform=\"`rotate(${yaw}, 100, 100)`\">\n              <!-- North needle (red) -->\n              <polygon points=\"100,28 96,100 104,100\" fill=\"#dc2626\" opacity=\"0.9\"/>\n              <!-- South needle (gray) -->\n              <polygon points=\"100,172 96,100 104,100\" fill=\"#9ca3af\" opacity=\"0.7\"/>\n              <!-- Center dot -->\n              <circle cx=\"100\" cy=\"100\" r=\"5\" fill=\"#1a1a1a\"/>\n              <circle cx=\"100\" cy=\"100\" r=\"2.5\" fill=\"white\"/>\n            </g>\n\n            <!-- Degree text -->\n            <text x=\"100\" y=\"114\" text-anchor=\"middle\" font-family=\"'DM Mono', monospace\" font-size=\"13\" font-weight=\"700\" fill=\"#374151\">{{ yaw }}°</text>\n          </svg>\n        </div>\n        <div class=\"compass-dir\">{{ compassDir }}</div>\n      </div>\n\n      <!-- Attitude Card -->\n      <div class=\"card attitude-card\">\n        <div class=\"card-label\">Attitude</div>\n        <div class=\"att-row\">\n          <div class=\"att-item\">\n            <div class=\"att-val\" :class=\"{ warn: Math.abs(roll) > 15 }\">{{ roll > 0 ? '+' : '' }}{{ roll }}°</div>\n            <div class=\"att-lbl\">Roll</div>\n          </div>\n          <div class=\"att-div\"></div>\n          <div class=\"att-item\">\n            <div class=\"att-val\" :class=\"{ warn: Math.abs(pitch) > 15 }\">{{ pitch > 0 ? '+' : '' }}{{ pitch }}°</div>\n            <div class=\"att-lbl\">Pitch</div>\n          </div>\n          <div class=\"att-div\"></div>\n          <div class=\"att-item\">\n            <div class=\"att-val\">{{ yaw }}°</div>\n            <div class=\"att-lbl\">Yaw</div>\n          </div>\n        </div>\n        <!-- Mini horizon bar -->\n        <div class=\"horizon-wrap\">\n          <div class=\"horizon-bar\" :style=\"{ transform: `rotate(${-roll * 0.3}deg) translateX(${pitch * 1.5}px)` }\">\n            <div class=\"horizon-sky\"></div>\n            <div class=\"horizon-ground\"></div>\n          </div>\n          <div class=\"horizon-cross\">\n            <div class=\"hc-h\"></div>\n            <div class=\"hc-v\"></div>\n          </div>\n        </div>\n      </div>\n\n      <!-- GPS Card -->\n      <div class=\"card gps-card\">\n        <div class=\"card-label\">GPS</div>\n        <div class=\"gps-row\">\n          <div class=\"gps-item\">\n            <div class=\"gps-val\" :class=\"gpsFix ? 'fix-ok' : 'fix-no'\">{{ gpsFix ? 'FIX' : 'NO FIX' }}</div>\n            <div class=\"gps-lbl\">Status</div>\n          </div>\n          <div class=\"gps-item\">\n            <div class=\"gps-val\">{{ gpsSats }}</div>\n            <div class=\"gps-lbl\">Sats</div>\n          </div>\n          <div class=\"gps-item\">\n            <div class=\"gps-val\">{{ altitude.toFixed(1) }}m</div>\n            <div class=\"gps-lbl\">Alt</div>\n          </div>\n          <div class=\"gps-item\">\n            <div class=\"gps-val\">{{ speed.toFixed(1) }}</div>\n            <div class=\"gps-lbl\">m/s</div>\n          </div>\n        </div>\n        <div class=\"gps-coords\" v-if=\"gpsFix\">{{ gpsLat.toFixed(6) }}, {{ gpsLon.toFixed(6) }}</div>\n        <div class=\"gps-coords no-fix\" v-else>Waiting for GPS lock...</div>\n      </div>\n\n    </div>\n\n    <!-- RIGHT PANEL — Mission -->\n    <div class=\"right-panel\">\n\n      <!-- Quick actions -->\n      <div class=\"action-bar\">\n        <button class=\"act-btn primary\" @click=\"uploadMission\">\n          <svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><polyline points=\"16 16 12 12 8 16\"/><line x1=\"12\" y1=\"12\" x2=\"12\" y2=\"21\"/><path d=\"M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3\"/></svg>\n          Upload Mission\n        </button>\n        <button class=\"act-btn danger\" @click=\"triggerArmFlow\">\n          {{ armed ? 'Disarm' : 'Arm Drone' }}\n        </button>\n        <button class=\"act-btn secondary\" @click=\"sendRTH\">\n          <svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\"><path d=\"M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/><polyline points=\"9 22 9 12 15 12 15 22\"/></svg>\n          RTH\n        </button>\n        <button class=\"act-btn ghost\" @click=\"clearMission\">Clear</button>\n      </div>\n\n      <!-- Mission stats strip -->\n      <div class=\"stats-strip\">\n        <div class=\"ss-item\" v-for=\"s in stats\" :key=\"s.label\">\n          <div class=\"ss-val\">{{ s.val }}</div>\n          <div class=\"ss-lbl\">{{ s.label }}</div>\n        </div>\n      </div>\n\n      <!-- Map hint -->\n      <div class=\"map-hint\">\n        <svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"8\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"16\" x2=\"12.01\" y2=\"16\"/></svg>\n        Open the map → draw a line or click points to place waypoints. They'll appear below automatically.\n      </div>\n\n      <!-- Defaults -->\n      <div class=\"defaults-row\">\n        <div class=\"def-field\">\n          <label>Default altitude</label>\n          <div class=\"slider-row\">\n            <input type=\"range\" v-model.number=\"gAlt\" min=\"5\" max=\"120\" step=\"5\" />\n            <span>{{ gAlt }}m</span>\n          </div>\n        </div>\n        <div class=\"def-field\">\n          <label>Default speed</label>\n          <div class=\"slider-row\">\n            <input type=\"range\" v-model.number=\"gSpeed\" min=\"1\" max=\"15\" step=\"1\" />\n            <span>{{ gSpeed }}m/s</span>\n          </div>\n        </div>\n        <div class=\"def-field\">\n          <label>Default action</label>\n          <select v-model=\"gAction\" class=\"def-select\">\n            <option v-for=\"a in acts\" :key=\"a.v\" :value=\"a.v\">{{ a.label }}</option>\n          </select>\n        </div>\n        <button class=\"apply-all\" @click=\"applyGlobal\">Apply to all</button>\n      </div>\n\n      <!-- Waypoint list -->\n      <div class=\"wp-header\">\n        <span class=\"wp-title\">Waypoints</span>\n        <span class=\"wp-count\">{{ waypoints.length }}</span>\n      </div>\n\n      <div class=\"wp-empty\" v-if=\"!waypoints.length\">\n        <svg width=\"32\" height=\"32\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#c8c4bc\" stroke-width=\"1.5\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"8\" y1=\"12\" x2=\"16\" y2=\"12\"/></svg>\n        <p>No waypoints yet</p>\n        <small>Open the map and draw a route</small>\n      </div>\n\n      <div class=\"wp-list\">\n        <div class=\"wp-item\" v-for=\"(wp, i) in waypoints\" :key=\"i\">\n          <div class=\"wp-row\" @click=\"toggle(i)\">\n            <div class=\"wp-index\">{{ String(i+1).padStart(2,'0') }}</div>\n            <div class=\"wp-summary\">\n              <span class=\"wp-action-tag\" :class=\"'tag-'+wp.action.replace('_','-')\">{{ getAct(wp.action).label }}</span>\n              <span class=\"wp-coord-text\">{{ wp.lat.toFixed(5) }}, {{ wp.lon.toFixed(5) }}</span>\n            </div>\n            <div class=\"wp-chips\">\n              <span class=\"chip\">{{ wp.altitude }}m</span>\n              <span class=\"chip\">{{ wp.speed }}m/s</span>\n            </div>\n            <div class=\"wp-toggle\">{{ open[i] ? '−' : '+' }}</div>\n          </div>\n\n          <div class=\"wp-detail\" v-if=\"open[i]\">\n            <div class=\"detail-coords\">\n              <span>{{ wp.lat.toFixed(7) }}</span>\n              <span class=\"dot-sep\">·</span>\n              <span>{{ wp.lon.toFixed(7) }}</span>\n            </div>\n\n            <div class=\"act-picker\">\n              <button v-for=\"a in acts\" :key=\"a.v\"\n                :class=\"['act-btn-sm', { active: wp.action === a.v }]\"\n                @click=\"wp.action = a.v\">\n                {{ a.label }}\n              </button>\n            </div>\n\n            <div class=\"detail-sliders\">\n              <div class=\"ds-row\">\n                <label>Altitude</label>\n                <input type=\"range\" v-model.number=\"wp.altitude\" min=\"5\" max=\"120\" step=\"5\" />\n                <span>{{ wp.altitude }}m</span>\n              </div>\n              <div class=\"ds-row\">\n                <label>Speed</label>\n                <input type=\"range\" v-model.number=\"wp.speed\" min=\"1\" max=\"15\" step=\"1\" />\n                <span>{{ wp.speed }}m/s</span>\n              </div>\n              <div class=\"ds-row\" v-if=\"['hover','loiter_time'].includes(wp.action)\">\n                <label>Hover time</label>\n                <input type=\"range\" v-model.number=\"wp.loiter_time\" min=\"0\" max=\"60\" step=\"5\" />\n                <span>{{ wp.loiter_time === 0 ? '∞' : wp.loiter_time + 's' }}</span>\n              </div>\n              <div class=\"ds-row\" v-if=\"wp.action === 'loiter'\">\n                <label>Orbit radius</label>\n                <input type=\"range\" v-model.number=\"wp.radius\" min=\"5\" max=\"100\" step=\"5\" />\n                <span>{{ wp.radius }}m</span>\n              </div>\n              <div class=\"ds-row\">\n                <label>Heading</label>\n                <input type=\"range\" v-model.number=\"wp.heading\" min=\"-1\" max=\"359\" step=\"5\" />\n                <span>{{ wp.heading === -1 ? 'Auto' : wp.heading + '°' }}</span>\n              </div>\n            </div>\n\n            <div class=\"ds-row\">\n              <label>Note</label>\n              <input type=\"text\" v-model=\"wp.note\" placeholder=\"Optional note...\" class=\"note-field\" />\n            </div>\n\n            <div class=\"wp-btns\">\n              <button class=\"wb\" @click=\"mvUp(i)\" :disabled=\"i===0\">↑ Up</button>\n              <button class=\"wb\" @click=\"mvDn(i)\" :disabled=\"i===waypoints.length-1\">↓ Down</button>\n              <button class=\"wb dup\" @click=\"dupWP(i)\">Duplicate</button>\n              <button class=\"wb del\" @click=\"rmWP(i)\">Remove</button>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div>\n  </div>\n\n  <div class=\"bottom-bar\">\n    Cerberus FC · Built by Ritesh · {{ new Date().toISOString().slice(0,10) }}\n  </div>\n\n</div>\n</template>\n\n<script>\nexport default {\n  data() {\n    return {\n      waypoints: [],\n      open: {},\n      armed: false,\n      gAlt: 20,\n      gSpeed: 5,\n      gAction: 'waypoint',\n\n      // Telemetry\n      roll: 0,\n      pitch: 0,\n      yaw: 0,\n      altitude: 0,\n      speed: 0,\n      gpsFix: false,\n      gpsSats: 0,\n      gpsLat: 0,\n      gpsLon: 0,\n      battVoltage: 0,\n      battCurrent: 0,\n      battMah: 0,\n      battCells: 3,\n      flightMode: 'IDLE',\n\n      isCounting: false,\n      countdown: 5,\n      timerObj: null,\n      _toastEl: null,\n      _modalEl: null,\n\n      acts: [\n        { v: 'waypoint',     label: 'Fly through' },\n        { v: 'hover',        label: 'Hover' },\n        { v: 'loiter',       label: 'Orbit' },\n        { v: 'loiter_time',  label: 'Timed hold' },\n        { v: 'drop_payload', label: 'Drop payload' },\n        { v: 'take_photo',   label: 'Take photo' },\n        { v: 'change_speed', label: 'Change speed' },\n        { v: 'alt_change',   label: 'Change alt' },\n        { v: 'land',         label: 'Land here' },\n        { v: 'rth',          label: 'Return home' }\n      ]\n    };\n  },\n\n  computed: {\n    battPct() {\n      const cells = this.battCells || 3;\n      const maxV  = cells * 4.2;\n      const minV  = cells * 3.3;\n      const pct   = Math.round(((this.battVoltage - minV) / (maxV - minV)) * 100);\n      return Math.max(0, Math.min(100, pct));\n    },\n    battBarColor() {\n      if (this.battPct > 50) return '#16a34a';\n      if (this.battPct > 20) return '#d97706';\n      return '#dc2626';\n    },\n    compassDir() {\n      const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];\n      return dirs[Math.round(this.yaw / 22.5) % 16];\n    },\n    flightModeClass() {\n      const m = this.flightMode.toLowerCase();\n      if (m.includes('wp') || m.includes('mission')) return 'mode-wp';\n      if (m.includes('hold') || m.includes('pos'))   return 'mode-hold';\n      if (m.includes('rth') || m.includes('return')) return 'mode-rth';\n      if (m.includes('arm'))                         return 'mode-arm';\n      return 'mode-idle';\n    },\n    stats() {\n      const n = this.waypoints.length;\n      let dist = 0;\n      for (let i = 1; i < n; i++) dist += this.haversine(this.waypoints[i-1], this.waypoints[i]);\n      let time = 0;\n      for (let i = 1; i < n; i++) {\n        time += this.haversine(this.waypoints[i-1], this.waypoints[i]) / (this.waypoints[i].speed || 5);\n        time += this.waypoints[i].loiter_time || 0;\n      }\n      const maxAlt = n ? Math.max(...this.waypoints.map(w => w.altitude)) : 0;\n      return [\n        { label: 'Waypoints', val: n },\n        { label: 'Distance',  val: dist > 0 ? (dist > 1000 ? (dist/1000).toFixed(1)+'km' : Math.round(dist)+'m') : '--' },\n        { label: 'Est. time', val: time > 0 ? (time > 60 ? Math.round(time/60)+'min' : Math.round(time)+'s') : '--' },\n        { label: 'Max alt',   val: maxAlt > 0 ? maxAlt+'m' : '--' }\n      ];\n    }\n  },\n\n  watch: {\n    msg(newMsg) {\n      if (!newMsg || !newMsg.payload) return;\n      const p = newMsg.payload;\n      if (typeof p === 'string') {\n        const isError = p.includes('ERROR') || p.includes('FAILED') || p.includes('error');\n        this.addToast(p.replace(/[^\\x00-\\x7F]/g, '').trim(), isError ? 'error' : 'ok');\n      }\n    }\n  },\n\n  mounted() {\n    // Toast portal\n    this._toastEl = document.createElement('div');\n    this._toastEl.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:2147483647;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none;max-width:360px;';\n    document.body.appendChild(this._toastEl);\n\n    // Modal portal\n    this._modalEl = document.createElement('div');\n    this._modalEl.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(6px);z-index:2147483646;align-items:center;justify-content:center;';\n    this._modalEl.innerHTML = `\n      <div id=\"cm-card\" style=\"background:#fff;border-radius:16px;padding:32px;width:90%;max-width:440px;box-shadow:0 24px 64px rgba(0,0,0,0.18);font-family:system-ui,sans-serif;\">\n        <div style=\"font-size:13px;font-weight:700;letter-spacing:2px;color:#dc2626;margin-bottom:8px;\">SAFETY CHECK</div>\n        <div style=\"font-size:22px;font-weight:700;color:#111;margin-bottom:20px;line-height:1.3;\">Confirm arming the drone</div>\n        <ul style=\"margin:0 0 24px 0;padding:0 0 0 20px;color:#4b5563;font-size:15px;line-height:2.1;\">\n          <li>Drone is placed under Waypoint 1</li>\n          <li>Launch area is clear and open</li>\n          <li>5 metre safety distance maintained</li>\n          <li>Transmitter is ON and in your hands</li>\n        </ul>\n        <div style=\"display:flex;gap:12px;\">\n          <button id=\"cm-cancel\" style=\"flex:1;padding:13px;border-radius:10px;background:#f3f4f6;border:none;font-size:14px;font-weight:600;color:#374151;cursor:pointer;\">Cancel</button>\n          <button id=\"cm-confirm\" style=\"flex:2;padding:13px;border-radius:10px;background:#dc2626;border:none;font-size:14px;font-weight:700;color:#fff;cursor:pointer;\">Confirm arm</button>\n        </div>\n      </div>`;\n    document.body.appendChild(this._modalEl);\n    document.getElementById('cm-cancel').onclick  = () => this.cancelArm();\n    document.getElementById('cm-confirm').onclick = () => this.startArmCountdown();\n\n    // Socket\n    this.$socket.on('msg-input:' + this.id, (msg) => {\n      if (!msg || !msg.payload) return;\n      const p = msg.payload;\n      if (p.type === 'waypoints') {\n        this.waypoints = p.data.map(wp => ({\n          lat: wp.lat, lon: wp.lon,\n          action: this.gAction, altitude: this.gAlt,\n          speed: this.gSpeed, loiter_time: 0, heading: -1, radius: 10, note: ''\n        }));\n        this.open = {};\n        this.addToast(`${p.data.length} waypoints loaded from map`, 'ok');\n      }\n      if (p.type === 'telemetry') {\n        if (p.attitude)  { this.roll  = p.attitude.roll; this.pitch = p.attitude.pitch; this.yaw = p.attitude.yaw; }\n        if (p.gps)       { this.gpsFix = p.gps.fix; this.gpsSats = p.gps.sats; this.gpsLat = p.gps.lat; this.gpsLon = p.gps.lon; this.speed = p.gps.speed || 0; }\n        if (p.altitude)  { this.altitude = p.altitude; }\n        if (p.battery)   { this.battVoltage = p.battery.voltage; this.battCurrent = p.battery.current || 0; this.battMah = p.battery.mah || 0; }\n        if (p.mode)      { this.flightMode = p.mode; }\n      }\n    });\n  },\n\n  beforeUnmount() {\n    if (this._toastEl?.parentNode) document.body.removeChild(this._toastEl);\n    if (this._modalEl?.parentNode) document.body.removeChild(this._modalEl);\n    clearInterval(this.timerObj);\n  },\n\n  methods: {\n    toggle(i) { const o = {...this.open}; o[i] = !o[i]; this.open = o; },\n    getAct(v)  { return this.acts.find(a => a.v === v) || { label: v }; },\n    applyGlobal() {\n      this.waypoints.forEach(wp => { wp.altitude = this.gAlt; wp.speed = this.gSpeed; wp.action = this.gAction; });\n      this.addToast('Defaults applied to all waypoints', 'ok');\n    },\n    rmWP(i) {\n      this.waypoints = this.waypoints.filter((_, idx) => idx !== i);\n      const o = {}; Object.keys(this.open).forEach(k => { const ki = parseInt(k); if (ki < i) o[k] = this.open[k]; else if (ki > i) o[ki-1] = this.open[k]; }); this.open = o;\n    },\n    mvUp(i) { if (!i) return; const a=[...this.waypoints]; a.splice(i-1,0,a.splice(i,1)[0]); this.waypoints=a; },\n    mvDn(i) { if (i>=this.waypoints.length-1) return; const a=[...this.waypoints]; a.splice(i+1,0,a.splice(i,1)[0]); this.waypoints=a; },\n    dupWP(i) { const a=[...this.waypoints]; a.splice(i+1,0,JSON.parse(JSON.stringify(a[i]))); this.waypoints=a; },\n\n    addToast(msg, type) {\n      if (!this._toastEl) return;\n      const t = document.createElement('div');\n      t.style.cssText = `pointer-events:auto;background:#fff;border:1px solid ${type==='error'?'#fecaca':'#d1fae5'};border-left:3px solid ${type==='error'?'#dc2626':'#16a34a'};padding:12px 16px;border-radius:8px;font-family:system-ui,sans-serif;font-size:13px;color:#111;box-shadow:0 4px 20px rgba(0,0,0,0.1);display:flex;align-items:center;gap:10px;max-width:360px;`;\n      t.innerHTML = `<span style=\"flex:1;line-height:1.4;\">${msg}</span><button onclick=\"this.parentNode.remove()\" style=\"background:none;border:none;color:#9ca3af;cursor:pointer;font-size:18px;padding:0;line-height:1;\">×</button>`;\n      this._toastEl.appendChild(t);\n      setTimeout(() => t.parentNode && t.remove(), 5000);\n    },\n\n    triggerArmFlow() {\n      if (this.armed) {\n        this.armed = false;\n        this.send({ payload: { command: 'disarm' } });\n        this.addToast('Drone disarmed', 'ok');\n      } else {\n        const btn = document.getElementById('cm-confirm');\n        if (btn) { btn.textContent = 'Confirm arm'; btn.disabled = false; btn.style.opacity = '1'; }\n        this._modalEl.style.display = 'flex';\n      }\n    },\n    cancelArm() {\n      this._modalEl.style.display = 'none';\n      this.isCounting = false;\n      clearInterval(this.timerObj);\n      const btn = document.getElementById('cm-confirm');\n      if (btn) { btn.textContent = 'Confirm arm'; btn.disabled = false; btn.style.opacity = '1'; }\n    },\n    startArmCountdown() {\n      if (this.isCounting) return;\n      this.isCounting = true; this.countdown = 5;\n      const btn = document.getElementById('cm-confirm');\n      if (btn) { btn.disabled = true; btn.style.opacity = '0.6'; }\n      this.timerObj = setInterval(() => {\n        this.countdown--;\n        if (btn) btn.textContent = `Arming in ${this.countdown}s...`;\n        if (this.countdown <= 0) { clearInterval(this.timerObj); this.executeArm(); }\n      }, 1000);\n    },\n    executeArm() {\n      this._modalEl.style.display = 'none';\n      this.isCounting = false; this.armed = true;\n      this.send({ payload: { command: 'arm' } });\n      this.addToast('Drone armed — stay clear of propellers', 'ok');\n    },\n    uploadMission() {\n      if (!this.waypoints.length) { this.addToast('No waypoints to upload — draw on the map first', 'error'); return; }\n      this.send({ payload: { command: 'upload', waypoints: JSON.parse(JSON.stringify(this.waypoints)) } });\n      this.addToast(`Uploading ${this.waypoints.length} waypoints to FC...`, 'ok');\n    },\n    clearMission()  { this.waypoints=[]; this.open={}; this.send({payload:{command:'clear'}}); this.addToast('Mission cleared','ok'); },\n    sendRTH()       { this.send({payload:{command:'rth'}}); this.addToast('Return to Home command sent','ok'); },\n    haversine(a, b) {\n      const R=6371000, dLat=(b.lat-a.lat)*Math.PI/180, dLon=(b.lon-a.lon)*Math.PI/180;\n      const x=Math.sin(dLat/2)**2+Math.cos(a.lat*Math.PI/180)*Math.cos(b.lat*Math.PI/180)*Math.sin(dLon/2)**2;\n      return R*2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x));\n    }\n  }\n};\n</script>\n\n<style scoped>\n@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap');\n\n*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }\n\n.gcs {\n  background: #f5f4f0;\n  min-height: 100vh;\n  font-family: 'DM Sans', sans-serif;\n  color: #1a1a1a;\n  display: flex;\n  flex-direction: column;\n}\n\n/* TOP BAR */\n.topbar {\n  background: #fff;\n  border-bottom: 1px solid #e5e3de;\n  padding: 0 20px;\n  height: 56px;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 16px;\n  position: sticky;\n  top: 0;\n  z-index: 100;\n}\n\n.brand { display: flex; align-items: center; gap: 10px; }\n.brand-mark {\n  width: 32px; height: 32px;\n  background: #1a1a1a;\n  border-radius: 8px;\n  display: flex; align-items: center; justify-content: center;\n  color: #fff;\n  font-family: 'DM Mono', monospace;\n  font-weight: 500;\n  font-size: 16px;\n}\n.brand-name { font-size: 15px; font-weight: 600; color: #111; line-height: 1.2; }\n.brand-sub  { font-size: 11px; color: #9ca3af; font-family: 'DM Mono', monospace; letter-spacing: 0.5px; }\n\n.topbar-center { flex: 1; display: flex; justify-content: center; }\n.mode-badge {\n  font-family: 'DM Mono', monospace;\n  font-size: 11px;\n  font-weight: 500;\n  letter-spacing: 1.5px;\n  padding: 4px 12px;\n  border-radius: 100px;\n  border: 1.5px solid;\n}\n.mode-idle  { border-color: #d1d5db; color: #6b7280; background: #f9fafb; }\n.mode-wp    { border-color: #93c5fd; color: #1d4ed8; background: #eff6ff; }\n.mode-hold  { border-color: #86efac; color: #15803d; background: #f0fdf4; }\n.mode-rth   { border-color: #fcd34d; color: #92400e; background: #fffbeb; }\n.mode-arm   { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }\n\n.topbar-right { display: flex; align-items: center; gap: 12px; }\n.map-link {\n  display: flex; align-items: center; gap: 6px;\n  font-size: 13px; font-weight: 500;\n  color: #374151;\n  text-decoration: none;\n  padding: 6px 12px;\n  border-radius: 8px;\n  border: 1px solid #e5e7eb;\n  background: #fff;\n  transition: all 0.15s;\n}\n.map-link:hover { background: #f9fafb; border-color: #d1d5db; color: #111; }\n\n.arm-status {\n  display: flex; align-items: center; gap: 6px;\n  font-size: 12px; font-weight: 600; letter-spacing: 1px;\n  font-family: 'DM Mono', monospace;\n  color: #374151;\n  padding: 6px 12px;\n  border-radius: 8px;\n  border: 1px solid #e5e7eb;\n  background: #f9fafb;\n  transition: all 0.3s;\n}\n.arm-status.is-armed {\n  background: #fef2f2;\n  border-color: #fca5a5;\n  color: #dc2626;\n}\n.arm-dot {\n  width: 7px; height: 7px;\n  border-radius: 50%;\n  background: #d1d5db;\n  transition: background 0.3s;\n}\n.arm-status.is-armed .arm-dot {\n  background: #dc2626;\n  box-shadow: 0 0 0 0 #dc2626;\n  animation: arm-pulse 1.5s infinite;\n}\n@keyframes arm-pulse {\n  0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.5); }\n  70% { box-shadow: 0 0 0 6px rgba(220,38,38,0); }\n  100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }\n}\n\n/* MAIN GRID */\n.main-grid {\n  display: grid;\n  grid-template-columns: 280px 1fr;\n  gap: 16px;\n  padding: 16px;\n  flex: 1;\n}\n@media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }\n\n/* CARDS */\n.card {\n  background: #fff;\n  border: 1px solid #e5e3de;\n  border-radius: 12px;\n  padding: 16px;\n  margin-bottom: 12px;\n}\n.card-label {\n  font-size: 11px;\n  font-weight: 600;\n  letter-spacing: 1.5px;\n  color: #9ca3af;\n  text-transform: uppercase;\n  margin-bottom: 12px;\n}\n\n/* BATTERY */\n.batt-main { margin-bottom: 10px; }\n.batt-voltage {\n  font-family: 'DM Mono', monospace;\n  font-size: 32px;\n  font-weight: 500;\n  color: #111;\n  line-height: 1;\n  margin-bottom: 10px;\n}\n.batt-unit { font-size: 16px; color: #9ca3af; margin-left: 2px; }\n.batt-pct-wrap { display: flex; align-items: center; gap: 10px; }\n.batt-bar-track { flex: 1; height: 8px; background: #f3f4f6; border-radius: 100px; overflow: hidden; }\n.batt-bar-fill { height: 100%; border-radius: 100px; transition: width 0.5s, background 0.5s; }\n.batt-pct-label { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; min-width: 36px; }\n.batt-detail {\n  display: flex; gap: 12px;\n  font-size: 12px; color: #9ca3af;\n  font-family: 'DM Mono', monospace;\n}\n.batt-cells {\n  margin-left: auto;\n  background: #f3f4f6;\n  padding: 2px 6px;\n  border-radius: 4px;\n  color: #6b7280;\n}\n\n/* COMPASS */\n.compass-wrap { display: flex; justify-content: center; padding: 4px 0; }\n.compass-svg { width: 160px; height: 160px; }\n.compass-dir {\n  text-align: center;\n  font-family: 'DM Mono', monospace;\n  font-size: 13px;\n  font-weight: 500;\n  color: #374151;\n  letter-spacing: 2px;\n  margin-top: 4px;\n}\n\n/* ATTITUDE */\n.att-row { display: flex; align-items: center; gap: 0; margin-bottom: 14px; }\n.att-item { flex: 1; text-align: center; }\n.att-div { width: 1px; height: 36px; background: #f3f4f6; }\n.att-val {\n  font-family: 'DM Mono', monospace;\n  font-size: 22px;\n  font-weight: 500;\n  color: #111;\n  transition: color 0.3s;\n}\n.att-val.warn { color: #d97706; }\n.att-lbl { font-size: 11px; color: #9ca3af; margin-top: 2px; letter-spacing: 0.5px; }\n\n.horizon-wrap {\n  position: relative;\n  height: 48px;\n  border-radius: 8px;\n  overflow: hidden;\n  background: #f3f4f6;\n  border: 1px solid #e5e3de;\n}\n.horizon-bar {\n  position: absolute;\n  width: 200%;\n  height: 200%;\n  top: 0;\n  left: -50%;\n  transform-origin: center center;\n  transition: transform 0.2s ease;\n}\n.horizon-sky    { height: 50%; background: #bfdbfe; }\n.horizon-ground { height: 50%; background: #d4a96a; }\n.horizon-cross {\n  position: absolute;\n  inset: 0;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n}\n.hc-h { position: absolute; width: 32px; height: 1.5px; background: #fff; }\n.hc-v { position: absolute; width: 1.5px; height: 12px; background: #fff; }\n\n/* GPS */\n.gps-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }\n.gps-item { text-align: center; }\n.gps-val { font-family: 'DM Mono', monospace; font-size: 15px; font-weight: 500; color: #111; }\n.gps-val.fix-ok { color: #16a34a; }\n.gps-val.fix-no { color: #dc2626; }\n.gps-lbl { font-size: 10px; color: #9ca3af; margin-top: 2px; }\n.gps-coords { font-family: 'DM Mono', monospace; font-size: 11px; color: #6b7280; }\n.gps-coords.no-fix { color: #d1d5db; font-style: italic; }\n\n/* RIGHT PANEL */\n.right-panel { display: flex; flex-direction: column; gap: 12px; }\n\n.action-bar { display: flex; gap: 8px; flex-wrap: wrap; }\n.act-btn {\n  display: flex; align-items: center; gap: 6px;\n  padding: 9px 16px;\n  border-radius: 8px;\n  font-size: 13px;\n  font-weight: 600;\n  cursor: pointer;\n  border: none;\n  transition: all 0.15s;\n  font-family: 'DM Sans', sans-serif;\n}\n.act-btn.primary  { background: #1a1a1a; color: #fff; flex: 1; justify-content: center; }\n.act-btn.primary:hover  { background: #333; }\n.act-btn.danger   { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }\n.act-btn.danger:hover   { background: #dc2626; color: #fff; border-color: #dc2626; }\n.act-btn.secondary{ background: #fff; color: #374151; border: 1px solid #e5e7eb; }\n.act-btn.secondary:hover{ background: #f9fafb; }\n.act-btn.ghost    { background: transparent; color: #9ca3af; border: 1px solid #e5e7eb; }\n.act-btn.ghost:hover    { color: #374151; }\n\n.stats-strip {\n  display: grid;\n  grid-template-columns: repeat(4, 1fr);\n  background: #fff;\n  border: 1px solid #e5e3de;\n  border-radius: 12px;\n  overflow: hidden;\n}\n.ss-item {\n  padding: 14px 16px;\n  text-align: center;\n  border-right: 1px solid #f3f4f6;\n}\n.ss-item:last-child { border-right: none; }\n.ss-val { font-family: 'DM Mono', monospace; font-size: 20px; font-weight: 500; color: #111; }\n.ss-lbl { font-size: 11px; color: #9ca3af; margin-top: 2px; }\n\n.map-hint {\n  display: flex; align-items: flex-start; gap: 8px;\n  padding: 10px 14px;\n  background: #fffbeb;\n  border: 1px solid #fde68a;\n  border-radius: 8px;\n  font-size: 12px;\n  color: #92400e;\n  line-height: 1.5;\n}\n.map-hint svg { flex-shrink: 0; margin-top: 1px; color: #d97706; }\n\n.defaults-row {\n  background: #fff;\n  border: 1px solid #e5e3de;\n  border-radius: 12px;\n  padding: 14px 16px;\n  display: grid;\n  grid-template-columns: 1fr 1fr 1fr auto;\n  gap: 16px;\n  align-items: end;\n}\n@media (max-width: 700px) { .defaults-row { grid-template-columns: 1fr 1fr; } }\n\n.def-field label { display: block; font-size: 11px; color: #9ca3af; margin-bottom: 6px; letter-spacing: 0.5px; }\n.slider-row { display: flex; align-items: center; gap: 8px; }\n.slider-row input[type=range] {\n  flex: 1;\n  -webkit-appearance: none;\n  height: 3px;\n  background: #e5e7eb;\n  border-radius: 2px;\n  outline: none;\n  cursor: pointer;\n}\n.slider-row input[type=range]::-webkit-slider-thumb {\n  -webkit-appearance: none;\n  width: 14px; height: 14px;\n  border-radius: 50%;\n  background: #1a1a1a;\n  cursor: pointer;\n}\n.slider-row span { font-family: 'DM Mono', monospace; font-size: 12px; color: #374151; min-width: 40px; }\n.def-select {\n  width: 100%;\n  background: #fff;\n  border: 1px solid #e5e7eb;\n  border-radius: 6px;\n  padding: 7px 8px;\n  font-family: 'DM Sans', sans-serif;\n  font-size: 13px;\n  color: #374151;\n  cursor: pointer;\n  outline: none;\n}\n.apply-all {\n  padding: 8px 14px;\n  background: #f3f4f6;\n  border: 1px solid #e5e7eb;\n  border-radius: 8px;\n  font-size: 12px;\n  font-weight: 600;\n  color: #374151;\n  cursor: pointer;\n  white-space: nowrap;\n  font-family: 'DM Sans', sans-serif;\n  transition: all 0.15s;\n}\n.apply-all:hover { background: #e5e7eb; }\n\n.wp-header { display: flex; align-items: center; gap: 8px; }\n.wp-title { font-size: 13px; font-weight: 600; color: #374151; }\n.wp-count {\n  background: #f3f4f6;\n  color: #6b7280;\n  font-family: 'DM Mono', monospace;\n  font-size: 11px;\n  font-weight: 500;\n  padding: 2px 8px;\n  border-radius: 100px;\n}\n\n.wp-empty {\n  text-align: center;\n  padding: 40px 20px;\n  background: #fff;\n  border: 1px dashed #d1d5db;\n  border-radius: 12px;\n  color: #9ca3af;\n}\n.wp-empty p { margin: 8px 0 4px; font-size: 14px; font-weight: 500; color: #6b7280; }\n.wp-empty small { font-size: 12px; }\n\n.wp-list { display: flex; flex-direction: column; gap: 6px; }\n.wp-item {\n  background: #fff;\n  border: 1px solid #e5e3de;\n  border-radius: 10px;\n  overflow: hidden;\n  transition: border-color 0.15s;\n}\n.wp-item:hover { border-color: #d1d5db; }\n\n.wp-row {\n  display: flex;\n  align-items: center;\n  gap: 12px;\n  padding: 12px 14px;\n  cursor: pointer;\n  transition: background 0.15s;\n}\n.wp-row:hover { background: #f9fafb; }\n\n.wp-index {\n  font-family: 'DM Mono', monospace;\n  font-size: 13px;\n  font-weight: 500;\n  color: #9ca3af;\n  flex-shrink: 0;\n  width: 24px;\n}\n.wp-summary { flex: 1; min-width: 0; }\n.wp-action-tag {\n  display: inline-block;\n  font-size: 11px;\n  font-weight: 600;\n  padding: 2px 8px;\n  border-radius: 4px;\n  margin-bottom: 2px;\n  background: #f3f4f6;\n  color: #374151;\n}\n.tag-waypoint     { background: #eff6ff; color: #1d4ed8; }\n.tag-hover        { background: #f0fdf4; color: #15803d; }\n.tag-loiter       { background: #f0fdf4; color: #15803d; }\n.tag-land         { background: #fef2f2; color: #dc2626; }\n.tag-rth          { background: #fffbeb; color: #92400e; }\n.tag-drop-payload { background: #fdf4ff; color: #7c3aed; }\n.wp-coord-text { display: block; font-family: 'DM Mono', monospace; font-size: 11px; color: #9ca3af; }\n.wp-chips { display: flex; gap: 4px; flex-shrink: 0; }\n.chip { font-family: 'DM Mono', monospace; font-size: 11px; background: #f3f4f6; color: #6b7280; padding: 2px 6px; border-radius: 4px; }\n.wp-toggle { color: #d1d5db; font-size: 16px; flex-shrink: 0; width: 20px; text-align: center; }\n\n.wp-detail {\n  padding: 14px;\n  border-top: 1px solid #f3f4f6;\n  background: #fafaf9;\n}\n.detail-coords {\n  font-family: 'DM Mono', monospace;\n  font-size: 11px;\n  color: #9ca3af;\n  margin-bottom: 12px;\n  display: flex;\n  gap: 6px;\n}\n.dot-sep { color: #d1d5db; }\n\n.act-picker { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }\n.act-btn-sm {\n  padding: 5px 10px;\n  border-radius: 6px;\n  font-size: 11px;\n  font-weight: 500;\n  background: #f3f4f6;\n  border: 1px solid #e5e7eb;\n  color: #374151;\n  cursor: pointer;\n  transition: all 0.15s;\n  font-family: 'DM Sans', sans-serif;\n}\n.act-btn-sm:hover { background: #e5e7eb; }\n.act-btn-sm.active { background: #1a1a1a; color: #fff; border-color: #1a1a1a; }\n\n.detail-sliders { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin-bottom: 10px; }\n@media (max-width: 600px) { .detail-sliders { grid-template-columns: 1fr; } }\n.ds-row { display: flex; align-items: center; gap: 8px; }\n.ds-row label { font-size: 11px; color: #9ca3af; min-width: 72px; flex-shrink: 0; }\n.ds-row input[type=range] {\n  flex: 1;\n  -webkit-appearance: none;\n  height: 3px;\n  background: #e5e7eb;\n  border-radius: 2px;\n  outline: none;\n  cursor: pointer;\n}\n.ds-row input[type=range]::-webkit-slider-thumb {\n  -webkit-appearance: none;\n  width: 12px; height: 12px;\n  border-radius: 50%;\n  background: #1a1a1a;\n  cursor: pointer;\n}\n.ds-row span { font-family: 'DM Mono', monospace; font-size: 11px; color: #374151; min-width: 36px; text-align: right; }\n.note-field {\n  flex: 1;\n  background: #fff;\n  border: 1px solid #e5e7eb;\n  border-radius: 6px;\n  padding: 6px 10px;\n  font-size: 12px;\n  font-family: 'DM Sans', sans-serif;\n  color: #374151;\n  outline: none;\n}\n.note-field:focus { border-color: #9ca3af; }\n.note-field::placeholder { color: #d1d5db; }\n\n.wp-btns { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }\n.wb {\n  padding: 6px 12px;\n  border-radius: 6px;\n  font-size: 11px;\n  font-weight: 500;\n  background: #f3f4f6;\n  border: 1px solid #e5e7eb;\n  color: #374151;\n  cursor: pointer;\n  transition: all 0.15s;\n  font-family: 'DM Sans', sans-serif;\n}\n.wb:hover:not(:disabled) { background: #e5e7eb; }\n.wb:disabled { opacity: 0.35; cursor: not-allowed; }\n.wb.dup { color: #15803d; background: #f0fdf4; border-color: #bbf7d0; }\n.wb.dup:hover { background: #dcfce7; }\n.wb.del { color: #dc2626; background: #fef2f2; border-color: #fecaca; }\n.wb.del:hover { background: #fee2e2; }\n\n/* BOTTOM BAR */\n.bottom-bar {\n  padding: 10px 20px;\n  text-align: center;\n  font-size: 11px;\n  color: #d1d5db;\n  border-top: 1px solid #e5e3de;\n  background: #fff;\n  font-family: 'DM Mono', monospace;\n}\n</style>",
+        "storeOutMessages": false,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 560,
+        "y": 160,
+        "wires": [
+            [
+                "cerb_builder",
+                "72fbb95bfd3e7f3a"
+            ]
+        ]
+    },
+    {
+        "id": "cerb_builder",
+        "type": "function",
+        "z": "cerb_tab",
+        "name": "Mission Builder",
+        "func": "// 1. Get the payload safely\nlet p = msg.payload;\n\n// 2. Unwrap the nested object if Vue sent it\nif (p && p.payload) {\n    p = p.payload;\n}\n\n// 3. SILENT DROP FOR TELEMETRY (The Spam Fix!)\n// If the message is just telemetry passing through the dashboard, kill it quietly.\nif (p && p.type === 'telemetry') {\n    return null; \n}\n\n// Debug: Print to the sidebar ONLY if it's a real button click\nnode.warn(\"Mission Builder received command: \" + (p ? p.command : \"None\"));\n\n// Safety catch for any other weird data\nif (!p || !p.command) {\n    node.warn(\"Missing command! Message dropped.\");\n    return null;\n}\n\n// --- COMMAND ROUTING ---\n\nif (p.command === 'arm' || p.command === 'disarm' || p.command === 'rth') {\n    msg.payload = { command: p.command };\n    return msg;\n}\n\nif (p.command === 'clear') {\n    flow.set('drawnwaypoints', []);\n    msg.payload = { command: 'clear' }; \n    return msg;\n}\n\nif (p.command === 'upload') {\n    if (!p.waypoints || p.waypoints.length === 0) {\n        node.warn('No waypoints to upload.');\n        return null;\n    }\n\n    const built = p.waypoints.map((wp, i) => ({\n        index: i,\n        lat: parseFloat(wp.lat),\n        lon: parseFloat(wp.lon),\n        action: wp.action || 'waypoint',\n        altitude: parseInt(wp.altitude) || 20,\n        speed: parseInt(wp.speed) || 5,\n        loiter_time: parseInt(wp.loiter_time) || 0,\n        heading: parseInt(wp.heading) || -1,\n        radius: parseInt(wp.radius) || 10,\n        note: wp.note || ''\n    }));\n\n    msg.payload = { command: 'upload', waypoints: built };\n    node.warn('Uploading ' + built.length + ' waypoints');\n    return msg;\n}\n\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 160,
+        "wires": [
+            [
+                "ab25f09ea603fa58"
+            ]
+        ]
+    },
+    {
+        "id": "ab25f09ea603fa58",
+        "type": "json",
+        "z": "cerb_tab",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 730,
+        "y": 220,
+        "wires": [
+            [
+                "325a5e878b010340"
+            ]
+        ]
+    },
+    {
+        "id": "57c401925a3e55a0",
+        "type": "debug",
+        "z": "cerb_tab",
+        "name": "debug 1",
+        "active": false,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 720,
+        "y": 60,
+        "wires": []
+    },
+    {
+        "id": "29b56582eca50769",
+        "type": "function",
+        "z": "cerb_tab",
+        "name": "Live gps",
+        "func": "try {\n    let telemetryData = JSON.parse(msg.payload);\n\n    if (!telemetryData.gps || !telemetryData.attitude) {\n        return null;\n    }\n\n    let lat = telemetryData.gps.lat;\n    let lon = telemetryData.gps.lon;\n    // Save the drone's live location to the flow memory\nflow.set('droneLat', lat);\nflow.set('droneLon', lon);\n    let currentHeading = telemetryData.attitude.yaw;\n\n    msg.payload = {\n        name: \"Cerberus\",\n        lat: lat,\n        lon: lon,\n\n        // Use a \"Special\" icon so the map knows it is allowed to rotate\n        // You can change \"arrow\" to \"quad\", \"uav\", or \"plane\"\n        icon: \"arrow\",\n\n        iconSize: 45,         // Makes the icon massive (size in pixels)\n        iconColor: \"#00FF00\", // Vibrant Neon Green\n\n        layer: \"Live Tracking\",\n\n        // This will now successfully grip the special icon and spin it!\n        heading: currentHeading\n    };\n\n    return msg;\n\n} catch (err) {\n    return null;\n}",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 100,
+        "y": 260,
+        "wires": [
+            [
+                "cerb_map"
+            ]
+        ]
+    },
+    {
+        "id": "325a5e878b010340",
+        "type": "udp out",
+        "z": "cerb_tab",
+        "name": "",
+        "addr": "127.0.0.1",
+        "iface": "",
+        "port": "5005",
+        "ipv": "udp4",
+        "outport": "",
+        "base64": false,
+        "multicast": "false",
+        "x": 970,
+        "y": 220,
+        "wires": []
+    },
+    {
+        "id": "2c8bdf9412c2bce9",
+        "type": "udp in",
+        "z": "cerb_tab",
+        "name": "",
+        "iface": "",
+        "port": "5006",
+        "ipv": "udp4",
+        "multicast": "false",
+        "group": "",
+        "datatype": "utf8",
+        "x": 260,
+        "y": 60,
+        "wires": [
+            [
+                "f46cb1a7491a0b06"
+            ]
+        ]
+    },
+    {
+        "id": "f46cb1a7491a0b06",
+        "type": "json",
+        "z": "cerb_tab",
+        "name": "",
+        "property": "payload",
+        "action": "",
+        "pretty": false,
+        "x": 510,
+        "y": 60,
+        "wires": [
+            [
+                "cerb_planner",
+                "57c401925a3e55a0"
+            ]
+        ]
+    },
+    {
+        "id": "72fbb95bfd3e7f3a",
+        "type": "debug",
+        "z": "cerb_tab",
+        "name": "debug 2",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "false",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 720,
+        "y": 120,
+        "wires": []
+    }
+]

@@ -1,0 +1,18 @@
+# Node-RED dependencies
+node-red/node_modules/
+node-red/.sessions.json
+
+# Local Node/NPM cache & config
+.npm/
+.npmrc
+.cache/
+.local/
+
+# Editor/OS backup & config files
+System\ Volume\ Information/
+.viminfo
+.bash_history
+.bash_logout
+.sudo_as_admin_successful
+*~
+.DS_Store

@@ -1,0 +1,21 @@
+{
+  "settings_version": "0.0.6",
+  "datasets_dir": "/home/pi/datasets",
+  "weights_dir": "/home/pi/weights",
+  "runs_dir": "/home/pi/runs",
+  "uuid": "cef74bc1bcac565c9aa1eacf8fa3cbe666d9c057cdaa75487a2f5d86f205281f",
+  "sync": true,
+  "api_key": "",
+  "openai_api_key": "",
+  "clearml": true,
+  "comet": true,
+  "dvc": true,
+  "hub": true,
+  "mlflow": true,
+  "neptune": true,
+  "raytune": true,
+  "tensorboard": false,
+  "wandb": false,
+  "vscode_msg": true,
+  "openvino_msg": true
+}

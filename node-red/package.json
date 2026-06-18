@@ -1,0 +1,10 @@
+{
+  "name": "node-red-project",
+  "description": "initially created for you by Node-RED 4.1.8",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@flowfuse/node-red-dashboard": "~1.30.2",
+    "node-red-contrib-web-worldmap": "~5.8.0"
+  }
+}
